@@ -81,7 +81,7 @@ public class DatabaseManager {
             statement.executeUpdate(sqlPlayerAccounts);
 
             String sqlTransactions = "CREATE TABLE IF NOT EXISTS Transactions ("
-                    + "  TransactionID int AUTO_INCREMENT NOT NULL,"
+                    + "  TransactionID bigint NOT NULL AUTO_INCREMENT,"
                     + "  TransactionDatetime varchar(23) NOT NULL,"
                     + "  TransactionType varchar(16) NOT NULL,"
                     + "  Induce varchar(16) NOT NULL,"
@@ -100,8 +100,8 @@ public class DatabaseManager {
             statement.executeUpdate(sqlTransactions);
 
             String sqlAutopays = "CREATE TABLE IF NOT EXISTS Autopays ("
-                    + "  AutopayID int AUTO_INCREMENT NOT NULL,"
-                    + "  AutopayDatetime varchar(23) NOT NULL,"
+                    + "  AutopayID bigint NOT NULL AUTO_INCREMENT,"
+                    + "  AutopayDatetime DATETIME NOT NULL,"
                     + "  Active tinyint(1) NOT NULL DEFAULT 1,"
                     + "  AutopayName varchar(16),"
                     + "  Source char(32),"
@@ -115,9 +115,9 @@ public class DatabaseManager {
                     + ");";
             statement.executeUpdate(sqlAutopays);
 
-            plugin.getLogger().info("Database tables created or already exist.");
+            plugin.getLogger().info("Tables created or already exist.");
         } catch (SQLException e) {
-            plugin.getLogger().severe("Error creating database tables: " + e.getMessage());
+            plugin.getLogger().severe("Error creating tables: " + e.getMessage());
         }
     }
 
@@ -254,7 +254,6 @@ public class DatabaseManager {
              Statement statement = conn.createStatement()) {
             String sql = "CREATE VIEW " + viewName + " AS "
                     + "SELECT "
-                    + "    t.TransactionID, "
                     + "    t.TransactionDatetime, "
                     + "    t.Amount, "
                     + "    sourcePlayer.PlayerName AS SourcePlayerName, "
@@ -272,7 +271,7 @@ public class DatabaseManager {
                     + "ORDER BY t.TransactionDatetime DESC;";
 
             statement.executeUpdate(sql);
-            plugin.getLogger().info("Transaction view created for UUID: " + untrimmedUuid);
+            plugin.getLogger().info("Transaction view created for UUID: " + uuid);
         } catch (SQLException e) {
             plugin.getLogger().severe("Error creating transaction view: " + e.getMessage());
         }
@@ -301,20 +300,19 @@ public class DatabaseManager {
 
     public static String displayTransactionsView(@NotNull String uuid, String playerName, Boolean displayPassed) {
         String trimmedUuid = TypeChecker.trimUUID(uuid);
-        String untrimmedUuid = TypeChecker.untrimUUID(uuid);
         String viewName = "vw_Transactions_" + trimmedUuid;
         StringBuilder transactions = new StringBuilder();
 
         String sql;
         if (displayPassed == null) {
             // Display all transactions
-            sql = "SELECT TransactionDatetime, Amount, SourcePlayerName, DestinationPlayerName, Message FROM " + viewName + " ORDER BY TransactionDatetime DESC";
+            sql = "SELECT TransactionDatetime, Amount, SourcePlayerName, DestinationPlayerName, Message FROM " + viewName + " ORDER BY TransactionDateTime DESC";
         } else if (displayPassed) {
             // Display only passed transactions
-            sql = "SELECT TransactionDatetime, Amount, SourcePlayerName, DestinationPlayerName, Message FROM " + viewName + " WHERE Passed = true ORDER BY TransactionDatetime DESC";
+            sql = "SELECT TransactionDatetime, Amount, SourcePlayerName, DestinationPlayerName, Message FROM " + viewName + " WHERE Passed = 'Passed' ORDER BY TransactionDateTime DESC";
         } else {
             // Display only failed transactions
-            sql = "SELECT TransactionDatetime, Amount, SourcePlayerName, DestinationPlayerName, Message FROM " + viewName + " WHERE Passed = false ORDER BY TransactionDatetime DESC";
+            sql = "SELECT TransactionDatetime, Amount, SourcePlayerName, DestinationPlayerName, Message FROM " + viewName + " WHERE Passed = 0 ORDER BY TransactionDateTime DESC";
         }
 
         try (Connection conn = getConnection();
@@ -323,16 +321,16 @@ public class DatabaseManager {
 
             // Iterate over the result set
             while (rs.next()) {
-                String dateTime = rs.getString("TransactionDatetime");
+                String dateTime = rs.getString("TransactionDateTime");
                 Double amount = rs.getDouble("Amount");
                 String source = rs.getString("SourcePlayerName");
                 String destination = rs.getString("DestinationPlayerName");
                 String transactionMessage = rs.getString("Message");
 
-                transactions.append(dateTime).append(" ").append(amount).append("¢ ");
+                transactions.append(dateTime).append(" ").append(amount);
                 if (source.equalsIgnoreCase(playerName)) {
                     transactions.append(" -> ").append(destination);
-                } else {
+                }else {
                     transactions.append(" <- ").append(source);
                 }
                 if(transactionMessage != null) {
@@ -341,14 +339,14 @@ public class DatabaseManager {
                 transactions.append("\n");
             }
         } catch (SQLException e) {
-            plugin.getLogger().severe("Error viewing transactions for UUID " + untrimmedUuid + ": " + e.getMessage());
+            plugin.getLogger().severe("Error viewing transactions for UUID " + uuid + ": " + e.getMessage());
         }
 
         return transactions.toString();
     }
 
     public static void addAutopay(String autopayName, @NotNull String uuid, @NotNull String destination,
-                                  double amount, int inverseFrequency, int timesLeft) {
+                                  double amount, int inverseFrequency, int endsAfter) {
         String trimmedUuid = TypeChecker.trimUUID(uuid);
         String trimmedDestination = TypeChecker.trimUUID(destination);
 
@@ -360,8 +358,8 @@ public class DatabaseManager {
             plugin.getLogger().severe("Error: InverseFrequency must be greater than 0.");
             return;
         }
-        if (timesLeft <= 0) {
-            plugin.getLogger().severe("Error: TimesLeft must be 0 (for continuous) or greater.");
+        if (endsAfter <= 0) {
+            plugin.getLogger().severe("Error: EndsAfter must be 0 (for continuous) or greater.");
             return;
         }
         Timestamp currentTime = new Timestamp(System.currentTimeMillis());
@@ -370,19 +368,19 @@ public class DatabaseManager {
 
         String sql = "DECLARE @AutopayName varchar(16) = ?;"
                 + "DECLARE @UUID char(32) = ?;"
-                + "DECLARE @AutopayDatetime varchar(23) = ?;"
+                + "AutopayDatetime DATETIME = ?;"
                 + "DECLARE @Destination char(32) = ?;"
                 + "DECLARE @Amount float = ?;"
                 + "DECLARE @InverseFrequency int NOT NULL = ?;"
-                + "DECLARE @TimesLeft int = ?;"
+                + "DECLARE @EndsAfter int NOT NULL = ?;"
                 + "BEGIN TRY"
                 + "    INSERT INTO Autopays ("
-                + "        AutopayID, AutopayName, Source, Destination,"
+                + "        Active, AutopayDatetime, AutopayName, Source, Destination,"
                 + "        Amount, InverseFrequency, EndsAfter"
                 + "    )"
                 + "    VALUES ("
                 + "        1, GETDATE(), @AutopayName, @UUID, @Destination,"
-                + "        @Amount, @InverseFrequency, @TimesLeft"
+                + "        @Amount, @InverseFrequency, @EndsAfter"
                 + "    );"
                 + "    PRINT 'Autopay created successfully.';"
                 + "END TRY"
@@ -399,7 +397,7 @@ public class DatabaseManager {
             pstmt.setString(4, trimmedDestination);
             pstmt.setDouble(5, amount);
             pstmt.setInt(6, inverseFrequency);
-            pstmt.setInt(7, timesLeft);
+            pstmt.setInt(7, endsAfter);
 
             pstmt.executeUpdate();
             plugin.getLogger().info("Autopay added successfully");
@@ -409,44 +407,16 @@ public class DatabaseManager {
     }
 
     public static void stateChangeAutopay(boolean activeState, int autopayID) {
-        String sqlfetch = "SELECT activeState FROM Autopays WHERE AutopayID = ?;";
-        String sqlupdate = "UPDATE Autopays SET Active = ? WHERE AutopayID = ?;";
+        String sql = "UPDATE Autopays SET Active = ? WHERE AutopayID = ?;";
 
-        // Check current state
         try (Connection conn = getConnection();
-             PreparedStatement pstmtFetch = conn.prepareStatement(sqlfetch)) {
-            pstmtFetch.setInt(1, autopayID);
+             PreparedStatement pstmt = conn.prepareStatement(sql)) {
+            pstmt.setBoolean(1, activeState);
+            pstmt.setInt(2, autopayID);
 
-            try (ResultSet rs = pstmtFetch.executeQuery()) {
-                if (rs.next()) {
-                    boolean currentState = rs.getBoolean("activeState");
-
-                    if (activeState == currentState) {
-                        String stateText = activeState ? "active" : "inactive";
-                        plugin.getLogger().info("Error: Autopay state is already " + stateText);
-                        return;
-                    }
-                } else {
-                    plugin.getLogger().info("No autopay record found with the given ID.");
-                    return;
-                }
-            }
-        } catch (SQLException e) {
-            plugin.getLogger().severe("Error fetching current autopay state: " + e.getMessage());
-            return;
-        }
-
-        // Proceed with updating the state if it differs from the current state
-        try (Connection conn = getConnection();
-             PreparedStatement pstmtUpdate = conn.prepareStatement(sqlupdate)) {
-            pstmtUpdate.setBoolean(1, activeState);
-            pstmtUpdate.setInt(2, autopayID);
-
-            String newStateText = activeState ? "activated" : "deactivated";
-
-            int rowsAffected = pstmtUpdate.executeUpdate();
+            int rowsAffected = pstmt.executeUpdate();
             if (rowsAffected > 0) {
-                plugin.getLogger().info("Autopay " + newStateText);
+                plugin.getLogger().info("Autopay updated successfully");
             } else {
                 plugin.getLogger().info("Autopay not found. No update was performed.");
             }
@@ -511,6 +481,7 @@ public class DatabaseManager {
         return autopays;
     }
 
+
     public static String listAllAccounts() {
         String sql = "SELECT PlayerName, Balance, BalChange, AccountDatetime AS Created FROM PlayerAccounts ORDER BY PlayerName ASC";
         StringBuilder accounts = new StringBuilder();
@@ -525,158 +496,138 @@ public class DatabaseManager {
         } catch (SQLException e) {
             plugin.getLogger().severe("Error listing all accounts: " + e.getMessage());
         }
+
         return accounts.toString();
     }
 
-    public static void rollback(String targetDateTime, boolean keepTransactions) throws SQLException {
-        Connection conn = null;
-        try {
-            conn = getConnection();
+    public static void rollback(String targetDateTime, boolean keepTransactions) {
+        try (Connection conn = getConnection()) {
             // Disable auto-commit to ensure transaction consistency
             conn.setAutoCommit(false);
 
-            // 1. First, check if there are any transactions to roll back
-            String getTransactionsSQL =
-                    "SELECT * FROM Transactions " +
-                            "WHERE TransactionDatetime > ? AND Passed = 1 " +
-                            "ORDER BY TransactionDatetime DESC";
+            try {
+                // 1. First, get all transactions after the target datetime that were successful
+                String getTransactionsSQL =
+                        "SELECT * FROM Transactions " +
+                                "WHERE TransactionDatetime > ? AND Passed = 1 " +
+                                "ORDER BY TransactionDatetime DESC";
 
-            // Create a scrollable ResultSet
-            try (PreparedStatement pstmt = conn.prepareStatement(getTransactionsSQL,
-                    ResultSet.TYPE_SCROLL_INSENSITIVE,
-                    ResultSet.CONCUR_READ_ONLY)) {
+                try (PreparedStatement pstmt = conn.prepareStatement(getTransactionsSQL)) {
+                    pstmt.setString(1, targetDateTime);
+                    ResultSet rs = pstmt.executeQuery();
 
-                pstmt.setString(1, targetDateTime);
-                ResultSet rs = pstmt.executeQuery();
+                    boolean hasTransactions = false;
+                    while (rs.next()) {
+                        hasTransactions = true;
+                        String source = rs.getString("Source");
+                        String destination = rs.getString("Destination");
+                        double amount = rs.getDouble("Amount");
 
-                if (!rs.next()) {
-                    plugin.getLogger().info("No transactions found after " + targetDateTime + "\nAborting rollback.");
-                    return;
-                }
+                        if (!keepTransactions) {
 
-                // Reset result set pointer
-                rs.beforeFirst();
+                            // Update source balance if exists
+                            if (source != null) {
+                                double newBalance = rs.getDouble("NewSourceBalance");
+                                double balanceChange = newBalance - displayBalance(source);
+                                String updateSourceSQL =
+                                        "UPDATE PlayerAccounts SET Balance = ?, " +
+                                                "BalChange = ? " +
+                                                "WHERE UUID = ?";
+                                try (PreparedStatement updateSource = conn.prepareStatement(updateSourceSQL)) {
+                                    updateSource.setDouble(1, newBalance);
+                                    updateSource.setDouble(2, balanceChange);
+                                    updateSource.setString(3, source);
+                                    updateSource.executeUpdate();
+                                }
+                            }
+                            // Update destination balance if exists
+                            if (destination != null) {
+                                double newBalance = rs.getDouble("NewDestinationBalance");
+                                double balanceChange = newBalance - displayBalance(destination);
+                                String updateDestinationSQL =
+                                        "UPDATE PlayerAccounts SET Balance = ?, " +
+                                                "BalChange = ? " +
+                                                "WHERE UUID = ?";
+                                try (PreparedStatement updateDest = conn.prepareStatement(updateDestinationSQL)) {
+                                    updateDest.setDouble(1, newBalance);
+                                    updateDest.setDouble(2, balanceChange);
+                                    updateDest.setString(3, destination);
+                                    updateDest.executeUpdate();
+                                }
+                            }
 
-                plugin.getLogger().info("Starting rollback to " + targetDateTime +
-                        (keepTransactions ? " (keeping transactions)" : ""));
+                        } else {
+                            // Set balances with new transaction
+                            String transactionMessage = "System rollback.";
 
-                if (!keepTransactions) {
-                    // Delete transactions first to maintain referential integrity
-                    String deleteTransactionsSQL = "DELETE FROM Transactions WHERE TransactionDatetime > ?";
-                    try (PreparedStatement pstmt2 = conn.prepareStatement(deleteTransactionsSQL)) {
-                        pstmt2.setString(1, targetDateTime);
-                        int deletedTransactions = pstmt2.executeUpdate();
-                        plugin.getLogger().info("Deleted " + deletedTransactions + " transactions");
-                    }
-
-                    // Delete Autopays
-                    String deleteAutopaysSQL = "DELETE FROM Autopays WHERE AutopayDatetime > ?";
-                    try (PreparedStatement pstmt3 = conn.prepareStatement(deleteAutopaysSQL)) {
-                        pstmt3.setString(1, targetDateTime);
-                        int deletedAutopays = pstmt3.executeUpdate();
-                        plugin.getLogger().info("Deleted " + deletedAutopays + " autopays");
-                    }
-                } else {
-                    // Deactivate Autopays
-                    String getAutopaysSQL = "SELECT AutopayID FROM Autopays WHERE AutopayDatetime > ?";
-                    try (PreparedStatement pstmt4 = conn.prepareStatement(getAutopaysSQL)) {
-                        pstmt4.setString(1, targetDateTime);
-                        ResultSet rs4 = pstmt4.executeQuery();
-
-                        int deactivatedCount = 0;
-                        while (rs4.next()) {
-                            int autopayID = rs4.getInt("AutopayID");
-                            stateChangeAutopay(false, autopayID);
-                            deactivatedCount++;
+                            // Make transaction for source if exists
+                            if (source != null) {
+                                double balanceChange = rs.getDouble("NewSourceBalance") - displayBalance(source);
+                                if (balanceChange > 0) {
+                                    executeTransaction("deposit", "command", null, source, balanceChange, transactionMessage);
+                                } else if (balanceChange < 0) {
+                                    executeTransaction("withdrawal", "command", source, null, Math.abs(balanceChange), transactionMessage);
+                                }
+                            }
+                            // Make transaction for destination if exists
+                            if (destination != null) {
+                                double balanceChange = rs.getDouble("NewDestinationBalance") - displayBalance(destination);
+                                if (balanceChange > 0) {
+                                    executeTransaction("deposit", "command", null, destination, balanceChange, transactionMessage);
+                                } else if (balanceChange < 0) {
+                                    executeTransaction("withdrawal", "command", destination, null, Math.abs(balanceChange), transactionMessage);
+                                }
+                            }
                         }
-                        plugin.getLogger().info("Deactivated " + deactivatedCount + " autopays");
                     }
-                }
 
-                while (rs.next()) {
-                    String source = rs.getString("Source");
-                    String destination = rs.getString("Destination");
+                    if (!hasTransactions) {
+                        plugin.getLogger().info("No transactions found after " + targetDateTime);
+                        return;
+                    }
 
                     if (!keepTransactions) {
-                        // Update source balance if exists
-                        if (source != null) {
-                            double newBalance = rs.getDouble("NewSourceBalance");
-                            double balanceChange = newBalance - displayBalance(source);
-                            String updateSourceSQL =
-                                    "UPDATE PlayerAccounts SET Balance = ?, " +
-                                            "BalChange = ? " +
-                                            "WHERE UUID = ?";
-                            try (PreparedStatement updateSource = conn.prepareStatement(updateSourceSQL)) {
-                                updateSource.setDouble(1, newBalance);
-                                updateSource.setDouble(2, balanceChange);
-                                updateSource.setString(3, source);
-                                updateSource.executeUpdate();
-                                plugin.getLogger().fine("Updated source balance for UUID: " + source);
-                            }
+                        // Delete transactions
+                        String deleteTransactionsSQL = "DELETE FROM Transactions WHERE TransactionDatetime > ?";
+                        try (PreparedStatement pstmt2 = conn.prepareStatement(deleteTransactionsSQL)) {
+                            pstmt2.setString(1, targetDateTime);
+                            pstmt2.executeUpdate();
                         }
-                        // Update destination balance if exists
-                        if (destination != null) {
-                            double newBalance = rs.getDouble("NewDestinationBalance");
-                            double balanceChange = newBalance - displayBalance(destination);
-                            String updateDestinationSQL =
-                                    "UPDATE PlayerAccounts SET Balance = ?, " +
-                                            "BalChange = ? " +
-                                            "WHERE UUID = ?";
-                            try (PreparedStatement updateDest = conn.prepareStatement(updateDestinationSQL)) {
-                                updateDest.setDouble(1, newBalance);
-                                updateDest.setDouble(2, balanceChange);
-                                updateDest.setString(3, destination);
-                                updateDest.executeUpdate();
-                                plugin.getLogger().fine("Updated destination balance for UUID: " + destination);
-                            }
+
+                        // Delete Autopays
+                        String deleteAutopaysSQL = "DELETE FROM Autopays WHERE AutopayDatetime > ?";
+                        try (PreparedStatement pstmt3 = conn.prepareStatement(deleteAutopaysSQL)) {
+                            pstmt3.setString(1, targetDateTime);
+                            pstmt3.executeUpdate();
                         }
                     } else {
-                        String transactionMessage = "System rollback.";
+                        // Deactivate Autopays
+                        String getAutopaysSQL = "SELECT AutopayID FROM Autopays WHERE AutopayDatetime > ?";
+                        try (PreparedStatement pstmt4 = conn.prepareStatement(getAutopaysSQL)) {
+                            pstmt4.setString(1, targetDateTime);
+                            ResultSet rs4 = pstmt4.executeQuery();
 
-                        // Make transaction for source if exists
-                        if (source != null) {
-                            double balanceChange = rs.getDouble("NewSourceBalance") - displayBalance(source);
-                            if (balanceChange > 0) {
-                                executeTransaction("deposit", "command", null, source, balanceChange, transactionMessage);
-                            } else if (balanceChange < 0) {
-                                executeTransaction("withdrawal", "command", source, null, Math.abs(balanceChange), transactionMessage);
-                            }
-                        }
-                        // Make transaction for destination if exists
-                        if (destination != null) {
-                            double balanceChange = rs.getDouble("NewDestinationBalance") - displayBalance(destination);
-                            if (balanceChange > 0) {
-                                executeTransaction("deposit", "command", null, destination, balanceChange, transactionMessage);
-                            } else if (balanceChange < 0) {
-                                executeTransaction("withdrawal", "command", destination, null, Math.abs(balanceChange), transactionMessage);
+                            while (rs4.next()) {
+                                int autopayID = rs4.getInt("AutopayID");
+                                stateChangeAutopay(false, autopayID);
                             }
                         }
                     }
+
+                    // If everything succeeded, commit the transaction
+                    conn.commit();
+                    plugin.getLogger().info("Successfully rolled back database to " + targetDateTime +
+                            (keepTransactions ? " (keeping transactions)" : ""));
+
                 }
-
-                // If everything succeeded, commit the transaction
-                conn.commit();
-                plugin.getLogger().info("Successfully rolled back database to " + targetDateTime);
-
             } catch (SQLException e) {
-                if (conn != null) {
-                    try {
-                        conn.rollback();
-                    } catch (SQLException rollbackEx) {
-                        plugin.getLogger().severe("Error during rollback of failed transaction: " + rollbackEx.getMessage());
-                    }
-                }
-                plugin.getLogger().severe("Error during rollback operation: " + e.getMessage());
+                // If anything fails, roll back all changes
+                conn.rollback();
+                plugin.getLogger().severe("Error during rollback, changes reverted: " + e.getMessage());
                 throw e;
             }
-        } finally {
-            if (conn != null) {
-                try {
-                    conn.close();
-                } catch (SQLException e) {
-                    plugin.getLogger().severe("Error closing database connection: " + e.getMessage());
-                }
-            }
+        } catch (SQLException e) {
+            plugin.getLogger().severe("Database rollback failed: " + e.getMessage());
         }
     }
 
@@ -886,7 +837,7 @@ public class DatabaseManager {
 
     public static double getPlayerBalanceChange(@NotNull String uuid){
         String trimmedUUID = TypeChecker.trimUUID(uuid);
-        double change = 0.0;
+        Double change = 0.0;
         String sql = "SELECT BalChange FROM PlayerAccounts WHERE UUID = ?";
 
         try (Connection conn = getConnection();
@@ -908,22 +859,17 @@ public class DatabaseManager {
     public static void setPlayerBalanceChange(@NotNull String uuid, double change) {
         String trimmedUuid = TypeChecker.trimUUID(uuid);
         String untrimmedUuid = TypeChecker.untrimUUID(uuid);
-        String sql = "UPDATE PlayerAccounts SET BalChange = ? WHERE UUID = ?;";
+        String sql = "UPDATE PlayerAccounts SET  BalChange = ? WHERE UUID = ?;";
 
         try (Connection conn = getConnection();
              PreparedStatement pstmt = conn.prepareStatement(sql)) {
             pstmt.setDouble(1, change);
             pstmt.setString(2, trimmedUuid);
-            int rowsAffected = pstmt.executeUpdate();
-
-            if (rowsAffected > 0) {
-                plugin.getLogger().info("Change updated successfully for UUID: " + untrimmedUuid);
-            } else {
-                plugin.getLogger().info("No account found for UUID: " + untrimmedUuid);
-            }
+            pstmt.executeUpdate();
         } catch (SQLException e) {
             plugin.getLogger().severe("Error updating change for UUID " + untrimmedUuid + ": " + e.getMessage());
         }
     }
+
 
 }
