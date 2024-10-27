@@ -115,9 +115,9 @@ public class DatabaseManager {
                     + ");";
             statement.executeUpdate(sqlAutopays);
 
-            plugin.getLogger().info("Tables created or already exist.");
+            plugin.getLogger().info("Database tables created or already exist.");
         } catch (SQLException e) {
-            plugin.getLogger().severe("Error creating tables: " + e.getMessage());
+            plugin.getLogger().severe("Error creating database tables: " + e.getMessage());
         }
     }
 
@@ -311,10 +311,10 @@ public class DatabaseManager {
             sql = "SELECT TransactionDatetime, Amount, SourcePlayerName, DestinationPlayerName, Message FROM " + viewName + " ORDER BY TransactionDatetime DESC";
         } else if (displayPassed) {
             // Display only passed transactions
-            sql = "SELECT TransactionDatetime, Amount, SourcePlayerName, DestinationPlayerName, Message FROM " + viewName + " WHERE Passed = 'Passed' ORDER BY TransactionDatetime DESC";
+            sql = "SELECT TransactionDatetime, Amount, SourcePlayerName, DestinationPlayerName, Message FROM " + viewName + " WHERE Passed = true ORDER BY TransactionDatetime DESC";
         } else {
             // Display only failed transactions
-            sql = "SELECT TransactionDatetime, Amount, SourcePlayerName, DestinationPlayerName, Message FROM " + viewName + " WHERE Passed = 0 ORDER BY TransactionDatetime DESC";
+            sql = "SELECT TransactionDatetime, Amount, SourcePlayerName, DestinationPlayerName, Message FROM " + viewName + " WHERE Passed = false ORDER BY TransactionDatetime DESC";
         }
 
         try (Connection conn = getConnection();
@@ -329,10 +329,10 @@ public class DatabaseManager {
                 String destination = rs.getString("DestinationPlayerName");
                 String transactionMessage = rs.getString("Message");
 
-                transactions.append(dateTime).append(" ").append(amount);
+                transactions.append(dateTime).append(" ").append(amount).append("¢ ");
                 if (source.equalsIgnoreCase(playerName)) {
                     transactions.append(" -> ").append(destination);
-                }else {
+                } else {
                     transactions.append(" <- ").append(source);
                 }
                 if(transactionMessage != null) {
@@ -541,7 +541,11 @@ public class DatabaseManager {
                             "WHERE TransactionDatetime > ? AND Passed = 1 " +
                             "ORDER BY TransactionDatetime DESC";
 
-            try (PreparedStatement pstmt = conn.prepareStatement(getTransactionsSQL)) {
+            // Create a scrollable ResultSet
+            try (PreparedStatement pstmt = conn.prepareStatement(getTransactionsSQL,
+                    ResultSet.TYPE_SCROLL_INSENSITIVE,
+                    ResultSet.CONCUR_READ_ONLY)) {
+
                 pstmt.setString(1, targetDateTime);
                 ResultSet rs = pstmt.executeQuery();
 
