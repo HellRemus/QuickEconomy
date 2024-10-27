@@ -83,7 +83,7 @@ public class Balances {
         float fMoney = (float) playerBalanceChange;
         return fMoney / 100;
     }
-    public static void setPlayerBalanceChange(String uuid, float money) {
+    public static void setPlayerBalanceChange(String uuid, double money) {
         if(SQLMode) {
             DatabaseManager.setPlayerBalanceChange(uuid, money);
             return;
@@ -97,7 +97,7 @@ public class Balances {
             return;
         }
 
-        float multMoney = money * 100;
+        double multMoney = money * 100;
         int intMoney = (int) multMoney;
         file.set("players." + trimmedUUID + ".change", intMoney);
         BalanceFile.save();

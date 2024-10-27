@@ -73,7 +73,7 @@ public class QuickeconomyCommand implements TabExecutor {
                         return true;
                     }
                     try {
-                        DatabaseManager.rollback(String.valueOf(rollbackTime));
+                        DatabaseManager.rollback(String.valueOf(rollbackTime), false);
                         sender.sendMessage("Completed rollback!");
                         plugin.getLogger().info("Rollback complete to " + timestampString);
                     } catch (Exception e){
